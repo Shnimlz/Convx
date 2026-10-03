@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   build_stable:
+    if: github.repository == 'cosmictaserdev-creator/Convx'
     name: Build Universal GMS Stable Release
     runs-on: ubuntu-latest
 

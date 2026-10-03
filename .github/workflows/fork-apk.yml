@@ -1,0 +1,115 @@
+name: Fork APK and Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'assets/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event.repository.fork
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - name: Install matching Android SDK and NDK
+        run: sdkmanager 'platforms;android-37' 'ndk;27.0.12077973'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: ./.github/actions/setup-fftw
+      - name: Prepare installable debug signing
+        env:
+          FORK_DEBUG_KEYSTORE: ${{ secrets.FORK_DEBUG_KEYSTORE }}
+        run: |
+          mkdir -p ~/.android
+          if [ -n "$FORK_DEBUG_KEYSTORE" ]; then
+            printf '%s' "$FORK_DEBUG_KEYSTORE" | base64 --decode > ~/.android/debug.keystore
+          elif [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -noprompt -keystore ~/.android/debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname 'CN=Convx Fork Debug,O=Android,C=US'
+          fi
+      - name: Test download regressions and build APK
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testUniversalGmsDebugUnitTest \
+            --tests 'com.convx.music.playback.DownloadActionsTest' \
+            --tests 'com.convx.music.playback.DownloadByteRangeTest' \
+            -PforkBuildNumber="$GITHUB_RUN_NUMBER" --no-configuration-cache --console=plain
+          ./gradlew :app:assembleUniversalGmsDebug \
+            -PforkBuildNumber="$GITHUB_RUN_NUMBER" --no-configuration-cache --console=plain
+      - name: Name APK and release version
+        id: version
+        run: |
+          source version.properties
+          VERSION="${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}-fork.${GITHUB_RUN_NUMBER}"
+          mkdir -p dist
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/universalGms/debug/*.apk)
+          [ "${#apks[@]}" -eq 1 ] || { echo 'Expected one universal APK'; exit 1; }
+          cp "${apks[0]}" "dist/convx-${VERSION}.apk"
+          printf 'version=%s\ntag=fork-v%s\n' "$VERSION" "$VERSION" >> "$GITHUB_OUTPUT"
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: convx-${{ steps.version.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: download-test-results
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: convx-${{ needs.build.outputs.version }}
+          path: dist
+      - name: Publish APK in Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          Fork build with auto-playlist download actions and resumable audio download fixes.
+
+          Download the universal `.apk` asset directly on your Android phone.
+          This is a debug-signed test build, installed separately from stable Convx.
+          Without a persistent FORK_DEBUG_KEYSTORE secret, later builds can require
+          uninstalling the previous fork build. Back up your library before uninstalling.
+          EOF
+          gh release create "$RELEASE_TAG" dist/* --target "$RELEASE_COMMIT" \
+            --title "Convx $RELEASE_VERSION" --notes-file release-notes.md --prerelease

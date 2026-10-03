@@ -20,6 +20,9 @@ val appVersionPatch = versionProps.getProperty("VERSION_PATCH").toInt()
 // 1.5.1 -> 10501. Room for MINOR/PATCH up to 99 each before a scheme change is needed.
 val appVersionCode = appVersionMajor * 10_000 + appVersionMinor * 100 + appVersionPatch
 val appVersionName = "$appVersionMajor.$appVersionMinor.$appVersionPatch"
+val forkBuildNumber = providers.gradleProperty("forkBuildNumber").orNull?.toInt()?.also {
+    require(it in 1..999_999) { "forkBuildNumber must be between 1 and 999999" }
+}
 
 plugins {
     id("com.android.application")
@@ -39,8 +42,8 @@ android {
         applicationId = "com.convx.music"
         minSdk = 26
         targetSdk = 36
-        versionCode = appVersionCode
-        versionName = appVersionName
+        versionCode = forkBuildNumber?.let { 1_000_000 + it } ?: appVersionCode
+        versionName = forkBuildNumber?.let { "$appVersionName-fork.$it" } ?: appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

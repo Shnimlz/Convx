@@ -16,7 +16,7 @@ jobs:
   build_debug:
     name: Build Universal GMS Debug
     runs-on: ubuntu-latest
-    if: github.actor != 'dependabot[bot]'
+    if: github.repository == 'cosmictaserdev-creator/Convx' && github.actor != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@v4
 
