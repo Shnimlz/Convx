@@ -29,6 +29,8 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Install matching Android SDK and NDK
         run: sdkmanager 'platforms;android-37' 'ndk;27.0.12077973'
       - uses: gradle/actions/setup-gradle@v4
