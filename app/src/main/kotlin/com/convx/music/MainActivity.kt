@@ -1051,19 +1051,28 @@ class MainActivity : ComponentActivity() {
                 // actual navigation call lands (see enterSearch/exitSearch below).
                 var searchVisualOverride by remember { mutableStateOf<Boolean?>(null) }
 
-                val onSearch: (String) -> Unit = remember(localOnlyMode) {
-                    { searchQuery ->
+                var searchOverlayOpen by rememberSaveable { mutableStateOf(openSearchOnLaunch) }
+
+                val onSearch: (String) -> Unit = remember(searchSource, navController, focusManager) {
+                    { rawQuery ->
+                        val searchQuery = rawQuery.trim()
                         if (searchQuery.isNotEmpty()) {
-                            // search/{query} is the YouTube results screen. In local-only
-                            // mode the results are already on screen (search_input renders
-                            // LocalSearchScreen live), so submitting just records history.
-                            if (!localOnlyMode) navController.navigate("search/${URLEncoder.encode(searchQuery, "UTF-8")}") {
-                                // No launchSingleTop: it compares destination id, not
-                                // resolved args, so re-submitting a new query while
-                                // already on search/{oldQuery} could get silently
-                                // treated as "already there" and dropped. popUpTo
-                                // below still prevents stacking a new entry per edit.
-                                popUpTo("search/{query}") { inclusive = true }
+                            onQueryChange(TextFieldValue(searchQuery, TextRange(searchQuery.length)))
+                            searchKeyboardActive = false
+                            focusManager.clearFocus()
+                            // Local search already filters the library live. Online
+                            // results replace the input overlay, rather than opening
+                            // underneath it where suggestions would keep covering them.
+                            if (searchSource == SearchSource.ONLINE) {
+                                searchOverlayOpen = false
+                                navController.navigate("search/${URLEncoder.encode(searchQuery, "UTF-8")}") {
+                                    // No launchSingleTop: it compares destination id, not
+                                    // resolved args, so re-submitting a new query while
+                                    // already on search/{oldQuery} could get silently
+                                    // treated as "already there" and dropped. popUpTo
+                                    // below still prevents stacking a new entry per edit.
+                                    popUpTo("search/{query}") { inclusive = true }
+                                }
                             }
 
                             if (dataStore[PauseSearchHistoryKey] != true) {
@@ -1083,6 +1092,13 @@ class MainActivity : ComponentActivity() {
                 }
                 LaunchedEffect(currentRoute) {
                     Timber.tag("Navigation").d("route -> $currentRoute")
+                    // Suggestions can also navigate straight to an artist, album,
+                    // or playlist. Do not leave the input layer above those pages.
+                    if (currentRoute != null && currentRoute !in TabRootRoutes) {
+                        searchOverlayOpen = false
+                        searchKeyboardActive = false
+                        focusManager.clearFocus()
+                    }
                 }
 
                 /**
@@ -1097,7 +1113,6 @@ class MainActivity : ComponentActivity() {
                  * exactly the three tabs the bar draws, and search opens in place over
                  * them for zero page travel.
                  */
-                var searchOverlayOpen by rememberSaveable { mutableStateOf(openSearchOnLaunch) }
 
                 // Home/Library/Settings are real NavHost destinations again, so
                 // currentRoute already IS the tab route -- no pager-page lookup needed.
@@ -1514,6 +1529,7 @@ class MainActivity : ComponentActivity() {
                                 navController.popBackStack(navController.graph.startDestinationId, inclusive = false)
                             }
                         }
+                        searchOverlayOpen = true
                         searchKeyboardActive = true
                     },
                     onExit = exitSearch,

@@ -106,7 +106,7 @@ jobs:
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
           cat > release-notes.md <<'EOF'
-          Fork build with auto-playlist download actions and resumable audio download fixes.
+          Fork build with search navigation fixes, auto-playlist download actions, and resumable audio downloads.
 
           Download the universal `.apk` asset directly on your Android phone.
           This is a debug-signed test build, installed separately from stable Convx.

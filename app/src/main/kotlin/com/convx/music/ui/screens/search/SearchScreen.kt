@@ -89,7 +89,6 @@ import com.convx.music.viewmodels.ExploreViewModel
 import com.convx.music.ui.screens.search.suggestions.SuggestionsTabContent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.net.URLEncoder
 import androidx.compose.runtime.collectAsState
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.compose.ui.text.style.TextOverflow
@@ -156,29 +155,27 @@ fun SearchScreen(
     var searchActive by rememberSaveable { mutableStateOf(false) }
     var showSearchContent by remember { mutableStateOf(false) }
 
-    val onSearchFromSuggestion: (String) -> Unit = remember {
-        { searchQuery ->
-            if (searchQuery.isNotEmpty()) {
-                focusManager.clearFocus()
-                when (val parsedUrl = YouTubeUrlParser.parse(searchQuery)) {
-                    is YouTubeUrlParser.ParsedUrl.Video -> {
-                        playerConnection?.playQueue(
-                            YouTubeQueue(WatchEndpoint(videoId = parsedUrl.id)),
-                        )
-                    }
-                    is YouTubeUrlParser.ParsedUrl.Artist -> {
-                        navController.navigate("artist/${parsedUrl.id}")
-                    }
-                    null -> {
-                        navController.navigate("search/${URLEncoder.encode(searchQuery, "UTF-8")}")
-                    }
+    val onSearchFromSuggestion: (String) -> Unit = { rawQuery ->
+        val searchQuery = rawQuery.trim()
+        if (searchQuery.isNotEmpty()) {
+            focusManager.clearFocus()
+            val parsedUrl = YouTubeUrlParser.parse(searchQuery)
+            when (parsedUrl) {
+                is YouTubeUrlParser.ParsedUrl.Video -> {
+                    playerConnection?.playQueue(
+                        YouTubeQueue(WatchEndpoint(videoId = parsedUrl.id)),
+                    )
                 }
-                if (!pauseSearchHistory) {
-                    coroutineScope.launch(Dispatchers.IO) {
-                        database.query {
-                            insert(SearchHistory(query = searchQuery))
-                        }
-                    }
+                is YouTubeUrlParser.ParsedUrl.Artist -> {
+                    navController.navigate("artist/${parsedUrl.id}")
+                }
+                null -> navSearch.onSubmit(searchQuery)
+            }
+            // Ordinary searches use the same submit path as the keyboard,
+            // including overlay dismissal and history. URL actions record here.
+            if (parsedUrl != null && !pauseSearchHistory) {
+                coroutineScope.launch(Dispatchers.IO) {
+                    database.query { insert(SearchHistory(query = searchQuery)) }
                 }
             }
         }

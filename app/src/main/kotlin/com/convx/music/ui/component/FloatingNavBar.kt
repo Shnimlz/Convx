@@ -57,6 +57,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.res.painterResource
@@ -641,8 +643,10 @@ fun NavBarSearchInputBar(
                     // the raw Enter key too so submit isn't only reachable by tapping
                     // a suggestion.
                     .onKeyEvent {
-                        if (it.key == Key.Enter) {
-                            state.onSubmit(state.query.text)
+                        if (it.key == Key.Enter || it.key == Key.NumPadEnter) {
+                            if (it.type == KeyEventType.KeyUp) {
+                                state.onSubmit(state.query.text)
+                            }
                             true
                         } else {
                             false
