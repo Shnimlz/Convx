@@ -36,6 +36,17 @@ data class DownloadTarget(
     val title: String,
 )
 
+/** Aggregate only remotely downloadable songs; partial batches still expose cancel. */
+fun playlistDownloadState(states: List<Int?>): Int = when {
+    states.isEmpty() -> Download.STATE_STOPPED
+    states.all { it == Download.STATE_COMPLETED } -> Download.STATE_COMPLETED
+    states.any {
+        it == Download.STATE_QUEUED || it == Download.STATE_DOWNLOADING ||
+            it == Download.STATE_RESTARTING
+    } -> Download.STATE_DOWNLOADING
+    else -> Download.STATE_STOPPED
+}
+
 /**
  * Whether [state] means a download should be (re)queued.
  *

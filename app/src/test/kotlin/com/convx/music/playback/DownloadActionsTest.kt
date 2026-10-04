@@ -3,6 +3,7 @@ package com.convx.music.playback
 import androidx.media3.exoplayer.offline.Download
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
@@ -11,6 +12,21 @@ import org.junit.Test
  * exactly what a "simplify this when()" refactor would flatten back out.
  */
 class DownloadActionsTest {
+
+    @Test
+    fun `a partially failed batch still offers cancellation while work is active`() {
+        assertEquals(Download.STATE_DOWNLOADING, playlistDownloadState(listOf(
+            Download.STATE_COMPLETED, Download.STATE_FAILED, Download.STATE_DOWNLOADING, null,
+        )))
+        assertEquals(Download.STATE_DOWNLOADING, playlistDownloadState(listOf(Download.STATE_RESTARTING)))
+    }
+
+    @Test
+    fun `empty and failed playlists offer download while completed playlists offer removal`() {
+        assertEquals(Download.STATE_STOPPED, playlistDownloadState(emptyList()))
+        assertEquals(Download.STATE_STOPPED, playlistDownloadState(listOf(null, Download.STATE_FAILED)))
+        assertEquals(Download.STATE_COMPLETED, playlistDownloadState(listOf(Download.STATE_COMPLETED)))
+    }
 
     @Test
     fun `a song we have never downloaded is queued`() {

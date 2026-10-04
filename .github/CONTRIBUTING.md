@@ -14,7 +14,7 @@ Convx is a single Android Studio project (Gradle multi-module). The pieces you'l
 ## 🖥️ Building locally
 
 * **JDK 21**, latest stable **Android Studio**.
-* `compileSdk 37`, `minSdk 26` — install those platforms via the SDK Manager if Android Studio prompts you to.
+* `compileSdk 36`, `minSdk 26` — install those platforms via the SDK Manager if Android Studio prompts you to.
 * Clone and open the project in Android Studio, let Gradle sync, then run/debug the `app` module as normal (`./gradlew :app:assembleUniversalFossDebug` from the CLI works too). No manual native toolchain, submodules, or codegen scripts are required — Gradle handles everything, including the protobuf codegen used by a couple of modules.
 
 ## 🌿 Branches & Commits

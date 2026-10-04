@@ -92,6 +92,15 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.convx.music.LocalPlayerAwareWindowInsets
 import com.convx.music.LocalPlayerConnection
+import com.convx.music.LocalDownloadUtil
+import com.convx.music.playback.DownloadTarget
+import com.convx.music.playback.downloadSongs
+import com.convx.music.playback.cancelDownloads
+import com.convx.music.playback.removeDownloads
+import com.convx.music.playback.playlistDownloadState
+import androidx.media3.exoplayer.offline.Download
+import androidx.compose.material3.TextButton
+import com.convx.music.ui.component.DefaultDialog
 import com.convx.music.R
 import com.convx.music.constants.SongSortDescendingKey
 import com.convx.music.constants.SongSortType
@@ -712,6 +721,33 @@ private fun AutoPlaylistHeader(
     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val totalLength = remember(songs) { songs.fastSumBy { it.song.duration } }
+    val downloadUtil = LocalDownloadUtil.current
+    val downloads by downloadUtil.downloads.collectAsState()
+    val downloadableSongs = remember(songs) { songs.filterNot { it.song.isLocal } }
+    val downloadState = remember(downloadableSongs, downloads) {
+        playlistDownloadState(downloadableSongs.map { downloads[it.id]?.state })
+    }
+    var showRemoveDownloadDialog by remember { mutableStateOf(false) }
+
+    if (showRemoveDownloadDialog) {
+        DefaultDialog(
+            onDismiss = { showRemoveDownloadDialog = false },
+            content = {
+                Text(stringResource(R.string.remove_download_playlist_confirm, stringResource(titleRes)))
+            },
+            buttons = {
+                TextButton(onClick = { showRemoveDownloadDialog = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+                TextButton(onClick = {
+                    showRemoveDownloadDialog = false
+                    removeDownloads(context, downloadableSongs.map { it.id })
+                }) {
+                    Text(stringResource(android.R.string.ok))
+                }
+            },
+        )
+    }
 
     val heroUrl = songs.firstOrNull()?.thumbnailUrl
     val tint = rememberHeroTint(heroUrl)
@@ -858,11 +894,23 @@ private fun AutoPlaylistHeader(
                 onClick = {
                     menuState.show {
                         AutoPlaylistMenu(
-                            downloadState = androidx.media3.exoplayer.offline.Download.STATE_STOPPED,
+                            downloadState = downloadState,
                             onQueue = {
                                 playerConnection.addToQueue(songs.map { it.toMediaItem() })
                             },
-                            onDownload = { },
+                            onDownload = {
+                                when (downloadState) {
+                                    Download.STATE_COMPLETED -> showRemoveDownloadDialog = true
+                                    Download.STATE_DOWNLOADING -> cancelDownloads(
+                                        context, downloadableSongs.map { it.id }, downloads,
+                                    )
+                                    else -> downloadSongs(
+                                        context,
+                                        downloadableSongs.map { DownloadTarget(it.id, it.title) },
+                                        downloads,
+                                    )
+                                }
+                            },
                             onDismiss = { menuState.dismiss() },
                         )
                     }

@@ -41,7 +41,6 @@ import com.convx.music.db.MusicDatabase
 import com.convx.music.db.entities.FormatEntity
 import com.convx.music.db.entities.SongEntity
 import com.convx.music.di.DownloadCache
-import com.convx.music.di.PlayerCache
 import com.convx.music.ui.utils.resize
 import com.convx.music.constants.AutoDownloadOnLikeKey
 import com.convx.music.utils.YTPlayerUtils
@@ -69,6 +68,7 @@ import com.convx.music.vivimusiccanvas.EchoMusicCanvasProvider
 import com.convx.music.vivimusiccanvas.ViviMusicCanvasProvider
 import com.convx.music.canvas.TidalCanvasProvider
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -87,12 +87,26 @@ constructor(
     val database: MusicDatabase,
     val databaseProvider: DatabaseProvider,
     @DownloadCache val downloadCache: SimpleCache,
-    @PlayerCache val playerCache: SimpleCache,
 ) {
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
     private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
     private val ipVersion by enumPreference(context, IpVersionKey, IpVersion.AUTO)
-    private val songUrlCache = HashMap<String, Pair<String, Long>>()
+    private data class ResolvedDownloadUrl(
+        val url: String,
+        val expiresAt: Long,
+        val youtube: Boolean,
+        val contentLength: Long?,
+    ) {
+        fun resolve(dataSpec: DataSpec): DataSpec {
+            if (!youtube) return dataSpec.withUri(url.toUri())
+            val uri = url.toUri().buildUpon()
+                .appendQueryParameter("range", downloadByteRange(dataSpec.position, dataSpec.length, contentLength))
+                .build()
+            return dataSpec.withUri(uri)
+        }
+    }
+
+    private val songUrlCache = ConcurrentHashMap<String, ResolvedDownloadUrl>()
     // Keep a reference to context so we can read DataStore prefs for JioSaavn support
     private val appContext: Context = context
 
@@ -142,47 +156,34 @@ constructor(
 
     private val dataSourceFactory =
         ResolvingDataSource.Factory(
-            CacheDataSource
-                .Factory()
-                .setCache(playerCache)
-                .setUpstreamDataSourceFactory(
-                    OkHttpDataSource.Factory(
-                        OkHttpClient.Builder()
-                            .dns(object : Dns {
-                                override fun lookup(hostname: String): List<InetAddress> {
-                                    val addresses = Dns.SYSTEM.lookup(hostname)
-                                    return when (this@DownloadUtil.ipVersion) {
-                                        IpVersion.IPV4 -> addresses.filter { it is Inet4Address }.ifEmpty { addresses }
-                                        IpVersion.IPV6 -> addresses.filter { it is Inet6Address }.ifEmpty { addresses }
-                                        IpVersion.AUTO -> addresses
-                                    }
-                                }
-                            })
-                            .proxy(YouTube.proxy)
-                            .proxyAuthenticator { _, response ->
-                                YouTube.proxyAuth?.let { auth ->
-                                    response.request.newBuilder()
-                                        .header("Proxy-Authorization", auth)
-                                        .build()
-                                } ?: response.request
+            // Streaming fragments can be a different codec/quality or source. Only
+            // DownloadManager's own cache may supply bytes for an offline download.
+            OkHttpDataSource.Factory(
+                OkHttpClient.Builder()
+                    .dns(object : Dns {
+                        override fun lookup(hostname: String): List<InetAddress> {
+                            val addresses = Dns.SYSTEM.lookup(hostname)
+                            return when (this@DownloadUtil.ipVersion) {
+                                IpVersion.IPV4 -> addresses.filter { it is Inet4Address }.ifEmpty { addresses }
+                                IpVersion.IPV6 -> addresses.filter { it is Inet6Address }.ifEmpty { addresses }
+                                IpVersion.AUTO -> addresses
                             }
-                            .build(),
-                    ),
-                ),
+                        }
+                    })
+                    .proxy(YouTube.proxy)
+                    .proxyAuthenticator { _, response ->
+                        YouTube.proxyAuth?.let { auth ->
+                            response.request.newBuilder()
+                                .header("Proxy-Authorization", auth)
+                                .build()
+                        } ?: response.request
+                    }
+                    .build(),
+            ),
         ) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
-            val length = if (dataSpec.length >= 0) dataSpec.length else 1
-
-            if (playerCache.isCached(mediaId, dataSpec.position, length)) {
-                return@Factory dataSpec
-            }
-
-            // ">" — the entry is usable while its expiry is still in the FUTURE. This
-            // was "<", which paired with the expiry being stored as a bare duration
-            // (see below) meant a cached URL was reused forever, long past the point
-            // where YouTube stopped serving it, and never re-resolved.
-            songUrlCache[mediaId]?.takeIf { it.second > System.currentTimeMillis() }?.let {
-                return@Factory dataSpec.withUri(it.first.toUri())
+            songUrlCache[mediaId]?.takeIf { it.expiresAt > System.currentTimeMillis() }?.let {
+                return@Factory it.resolve(dataSpec)
             }
 
             val playbackData = runBlocking(Dispatchers.IO) {
@@ -192,9 +193,10 @@ constructor(
                     connectivityManager = connectivityManager,
                     // Pass context so the JioSaavn intercept fires when the toggle is ON
                     context = appContext,
-                    // Lossless is streaming-only for now: downloads stay YouTube so the
-                    // offline cache (keyed by videoId) never mixes FLAC and Opus bytes.
+                    // Exclude lossless-capable Spine/Tidal sources from offline bytes.
+                    // Saavn remains supported and uses its own resolved CDN URL.
                     allowLossless = false,
+                    forceStandardAudio = true,
                 )
             }.getOrThrow()
             val format = playbackData.format
@@ -311,21 +313,16 @@ constructor(
                 }
             }
 
-            // For YouTube streams: append the &range= param so the download cache can
-            // handle progressive HTTP range requests. For JioSaavn/TIDAL/spine streams
-            // the CDN doesn't need it and contentLength is null, so skip it.
-            val streamUrl = if (playbackData.isSaavnStream || playbackData.isTidalStream || playbackData.isSpineStream) {
-                playbackData.streamUrl
-            } else {
-                "${playbackData.streamUrl}&range=0-${format.contentLength ?: 10_000_000}"
-            }
-
-            // Absolute deadline, not a bare duration — the read above compares this
-            // against System.currentTimeMillis(). MusicService's resolver already
-            // stored it this way; this one was ~6h past the epoch, i.e. always stale.
-            songUrlCache[mediaId] =
-                streamUrl to System.currentTimeMillis() + (playbackData.streamExpiresInSeconds * 1000L)
-            dataSpec.withUri(streamUrl.toUri())
+            // Cache the base URL, not a range tied to the first request. A resumed
+            // download must request its remaining bytes, without an arbitrary 10 MB cap.
+            val resolved = ResolvedDownloadUrl(
+                url = playbackData.streamUrl,
+                expiresAt = System.currentTimeMillis() + playbackData.streamExpiresInSeconds * 1000L,
+                youtube = !playbackData.isSaavnStream && !playbackData.isTidalStream && !playbackData.isSpineStream,
+                contentLength = format.contentLength,
+            )
+            songUrlCache[mediaId] = resolved
+            resolved.resolve(dataSpec)
         }
 
     val downloadNotificationHelper =
@@ -354,6 +351,14 @@ constructor(
             )
             addListener(
                 object : DownloadManager.Listener {
+                    override fun onDownloadRemoved(downloadManager: DownloadManager, download: Download) {
+                        downloads.update { it - download.request.id }
+                        songUrlCache.remove(download.request.id)
+                        scope.launch {
+                            database.updateDownloadedInfo(download.request.id, false, null)
+                        }
+                    }
+
                     override fun onDownloadChanged(
                         downloadManager: DownloadManager,
                         download: Download,
@@ -373,6 +378,9 @@ constructor(
                         // Timber so it lands in the in-app log viewer (Settings ->
                         // Content -> Logs) and can be read off a user's device.
                         if (download.state == Download.STATE_FAILED) {
+                            // A server can reject a signed URL before its advertised expiry.
+                            // Retrying must resolve a fresh URL instead of reusing that one.
+                            songUrlCache.remove(download.request.id)
                             Timber.e(
                                 finalException,
                                 "Download failed: id=%s title=%s reason=%d",
@@ -403,9 +411,10 @@ constructor(
 
     init {
         val result = mutableMapOf<String, Download>()
-        val cursor = downloadManager.downloadIndex.getDownloads()
-        while (cursor.moveToNext()) {
-            result[cursor.download.request.id] = cursor.download
+        downloadManager.downloadIndex.getDownloads().use { cursor ->
+            while (cursor.moveToNext()) {
+                result[cursor.download.request.id] = cursor.download
+            }
         }
         downloads.value = result
     }
