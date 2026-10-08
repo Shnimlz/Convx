@@ -44,3 +44,7 @@ Changing streaming quality or Data Saver does not delete downloaded songs.
 The beta label is inherited from upstream; it is not a nonfunctional placeholder.
 Unit tests and APK compilation cover the policy changes, but real-device traffic
 measurements and provider availability still need to be checked on your network.
+
+## Local-only mode
+
+Completed Convx downloads are included in Home songs, the Local Songs tab and song search while Local-only mode is enabled, including verified FLAC downloads. Files scanned from MediaStore retain their separate identity; downloads are never marked as device files. Incomplete downloads and remote-only library songs are excluded from these song lists. Playback uses a read-only download cache with no HTTP fallback and reports a missing-download error if audio is unavailable. Album/artist grouping and playlists still follow the existing beta UI; this does not export cached audio as public files.

@@ -609,4 +609,5 @@
     <string name="diy_redo">Redo</string>
     <string name="diy_rotation">Rotation</string>
     <string name="diy_size">Size</string>
+    <string name="local_only_song_unavailable">This song is not downloaded. Download it before using Local-only mode.</string>
 </resources>

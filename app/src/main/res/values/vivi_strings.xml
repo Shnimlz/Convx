@@ -52,7 +52,7 @@
     <string name="local_files_found">Found %1$d local audio files</string>
     <string name="local_audio_permission_needed">Storage permission is needed to access local audio files</string>
     <string name="local_only_mode">Local-only mode (Beta)</string>
-    <string name="local_only_mode_desc">Home, Library and Search show only music stored on this device</string>
+    <string name="local_only_mode_desc">Play device files and completed Convx downloads without streaming. Downloads appear in Home, Songs and Search.</string>
     <string name="folders">Folders</string>
     <string name="excluded_folders">Excluded folders</string>
     <string name="excluded_folders_desc">Choose which on-device folders local-only mode scans</string>

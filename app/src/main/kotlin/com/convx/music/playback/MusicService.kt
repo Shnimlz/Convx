@@ -116,6 +116,7 @@ import com.convx.music.constants.EnableDiscordRPCKey
 import com.convx.music.constants.EnableLastFMScrobblingKey
 import com.convx.music.constants.HideExplicitKey
 import com.convx.music.constants.HideVideoSongsKey
+import com.convx.music.constants.LocalOnlyModeKey
 import com.convx.music.constants.DataSaverEnabledKey
 import com.convx.music.constants.ListenBrainzEnabledKey
 import com.convx.music.constants.ListenBrainzTokenKey
@@ -1491,6 +1492,7 @@ class MusicService :
         mediaId: String,
         playbackData: YTPlayerUtils.PlaybackData? = null
     ) {
+        if (dataStore.get(LocalOnlyModeKey, false)) return
         val song = database.song(mediaId).first()
         val mediaMetadata = withContext(Dispatchers.Main) {
             player.findNextMediaItemById(mediaId)?.metadata
@@ -3204,7 +3206,16 @@ class MusicService :
     }
 
     private fun createDataSourceFactory(): DataSource.Factory {
-        return ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
+        val onlineFactory = createCacheDataSource()
+        val offlineFactory = CacheDataSource.Factory()
+            .setCache(downloadCache)
+            .setCacheWriteDataSinkFactory(null)
+            .setUpstreamDataSourceFactory(DefaultDataSource.Factory(this, androidx.media3.datasource.PlaceholderDataSource.FACTORY))
+        val modeAwareFactory = DataSource.Factory {
+            if (dataStore.get(LocalOnlyModeKey, false)) offlineFactory.createDataSource()
+            else onlineFactory.createDataSource()
+        }
+        return ResolvingDataSource.Factory(modeAwareFactory) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
 
             // Local files (content://, file://, /storage/) - skip YouTube resolution
@@ -3213,6 +3224,18 @@ class MusicService :
                 mediaId.startsWith("file://") ||
                 mediaId.startsWith("/storage/")
             ) {
+                return@Factory dataSpec
+            }
+
+            // Local-only playback uses the download cache with no network fallback.
+            // Keep the plain media ID: streaming quality/FLAC namespaces do not apply.
+            if (dataStore.get(LocalOnlyModeKey, false)) {
+                if (!downloadCache.isCached(mediaId, dataSpec.position, 1)) {
+                    throw PlaybackException(
+                        getString(R.string.local_only_song_unavailable), null,
+                        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+                    )
+                }
                 return@Factory dataSpec
             }
 

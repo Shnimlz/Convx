@@ -297,4 +297,7 @@
     <string name="use_login_for_browse">Utilice el inicio de sesión para ver el contenido</string>
     <string name="use_login_for_browse_desc">Esto puede influir en el contenido que ve y, por ejemplo, muestra álbumes exclusivos si ha iniciado sesión con una cuenta Premium</string>
     <string name="action_login">Acceder</string>
+    <string name="local_only_song_unavailable">Esta canción no está descargada. Descárgala antes de usar el modo solo local.</string>
+    <string name="local_only_mode">Modo solo local (beta)</string>
+    <string name="local_only_mode_desc">Reproduce archivos del teléfono y descargas completas de Convx sin streaming. Las descargas aparecen en Inicio, Canciones y Búsqueda.</string>
 </resources>

@@ -1430,35 +1430,36 @@ interface DatabaseDao {
     // Local songs are scanned, never downloaded, so dateDownload is NULL for all of
     // them and ordering by it did nothing. inLibrary holds the file's MediaStore
     // DATE_ADDED (see LocalAudioScanner).
-    @Query("SELECT * FROM song WHERE isLocal = 1 ORDER BY inLibrary")
-    fun localSongsByCreateDateAsc(): Flow<List<Song>>
+    @Query("SELECT * FROM song WHERE isLocal = 1 OR (:includeDownloads AND isDownloaded = 1) ORDER BY COALESCE(dateDownload, inLibrary)")
+    fun localSongsByCreateDateAsc(includeDownloads: Boolean = false): Flow<List<Song>>
 
     @Transaction
-    @Query("SELECT * FROM song WHERE isLocal = 1 ORDER BY title")
-    fun localSongsByNameAsc(): Flow<List<Song>>
+    @Query("SELECT * FROM song WHERE isLocal = 1 OR (:includeDownloads AND isDownloaded = 1) ORDER BY title")
+    fun localSongsByNameAsc(includeDownloads: Boolean = false): Flow<List<Song>>
 
     @Transaction
-    @Query("SELECT * FROM song WHERE isLocal = 1 ORDER BY totalPlayTime")
-    fun localSongsByPlayTimeAsc(): Flow<List<Song>>
+    @Query("SELECT * FROM song WHERE isLocal = 1 OR (:includeDownloads AND isDownloaded = 1) ORDER BY totalPlayTime")
+    fun localSongsByPlayTimeAsc(includeDownloads: Boolean = false): Flow<List<Song>>
 
     @Transaction
-    @Query("SELECT * FROM song WHERE isLocal = 1 ORDER BY rowId")
-    fun localSongsByRowIdAsc(): Flow<List<Song>>
+    @Query("SELECT * FROM song WHERE isLocal = 1 OR (:includeDownloads AND isDownloaded = 1) ORDER BY rowId")
+    fun localSongsByRowIdAsc(includeDownloads: Boolean = false): Flow<List<Song>>
 
     fun localSongs(
         sortType: SongSortType,
         descending: Boolean,
+        includeDownloads: Boolean = false,
     ) = when (sortType) {
-        SongSortType.CREATE_DATE -> localSongsByCreateDateAsc()
+        SongSortType.CREATE_DATE -> localSongsByCreateDateAsc(includeDownloads)
         SongSortType.NAME ->
-            localSongsByNameAsc().map { songs ->
+            localSongsByNameAsc(includeDownloads).map { songs ->
                 val collator = Collator.getInstance(Locale.getDefault())
                 collator.strength = Collator.PRIMARY
                 songs.sortedWith(compareBy(collator) { it.song.title })
             }
 
         SongSortType.ARTIST ->
-            localSongsByRowIdAsc().map { songs ->
+            localSongsByRowIdAsc(includeDownloads).map { songs ->
                 val collator = Collator.getInstance(Locale.getDefault())
                 collator.strength = Collator.PRIMARY
                 songs
@@ -1476,7 +1477,7 @@ interface DatabaseDao {
                     }
             }
 
-        SongSortType.PLAY_TIME -> localSongsByPlayTimeAsc()
+        SongSortType.PLAY_TIME -> localSongsByPlayTimeAsc(includeDownloads)
     }.map { it.reversed(descending) }
         .flowOn(Dispatchers.Default)
 

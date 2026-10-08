@@ -48,6 +48,8 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000 \
               -dname 'CN=Convx Fork Debug,O=Android,C=US'
           fi
+      - name: Check local-only database queries
+        run: python3 scripts/test_local_only_queries.py
       - name: Test download regressions and build APK
         env:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
@@ -117,6 +119,8 @@ jobs:
           Existing downloads keep their format; remove and download again to change it.
           Data Saver now enforces low-bitrate streaming, disables background video in both players,
           and waits for an unmetered connection before downloading. Changing quality preserves offline songs.
+          Local-only mode includes completed downloads in Home, Songs and song search,
+          and plays downloaded audio without an HTTP fallback.
 
           Download the universal `.apk` asset directly on your Android phone.
           This is a debug-signed test build, installed separately from stable Convx.

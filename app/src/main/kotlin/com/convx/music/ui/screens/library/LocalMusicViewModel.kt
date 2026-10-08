@@ -3,6 +3,12 @@ package com.convx.music.ui.screens.library
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.convx.music.constants.LocalOnlyModeKey
+import com.convx.music.utils.dataStore
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import com.convx.music.db.MusicDatabase
 import com.convx.music.db.entities.Album
 import com.convx.music.db.entities.Artist
@@ -18,12 +24,17 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class LocalMusicViewModel @Inject constructor(
     private val database: MusicDatabase,
+    @ApplicationContext context: Context,
 ) : ViewModel() {
 
-    val songs: StateFlow<List<Song>> = database.localSongsByNameAsc()
+    val songs: StateFlow<List<Song>> = context.dataStore.data
+        .map { it[LocalOnlyModeKey] == true }
+        .distinctUntilChanged()
+        .flatMapLatest { database.localSongsByNameAsc(includeDownloads = it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val albums: StateFlow<List<Album>> = database.albumsLocalByNameAsc()

@@ -19,6 +19,7 @@ import com.music.innertube.models.filterYoutubeShorts
 import com.music.innertube.pages.ArtistPage
 import com.convx.music.constants.HideExplicitKey
 import com.convx.music.constants.HideVideoSongsKey
+import com.convx.music.constants.LocalOnlyModeKey
 import com.convx.music.constants.DataSaverEnabledKey
 import com.convx.music.constants.HideYoutubeShortsKey
 import com.convx.music.db.MusicDatabase
@@ -95,6 +96,7 @@ class ArtistViewModel @Inject constructor(
 
     fun fetchArtistsFromYTM() {
         viewModelScope.launch {
+            if (context.dataStore.get(LocalOnlyModeKey, false)) return@launch
             val hideExplicit = context.dataStore.get(HideExplicitKey, false)
             val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false) || context.dataStore.get(DataSaverEnabledKey, false)
             val hideYoutubeShorts = context.dataStore.get(HideYoutubeShortsKey, false)
@@ -108,6 +110,7 @@ class ArtistViewModel @Inject constructor(
 
                     artistPage = page.copy(sections = filteredSections)
                     
+                    if (context.dataStore.get(DataSaverEnabledKey, false)) return@onSuccess
                     // Try to fetch artist video canvas from top songs
                     val topSongsSection = page.sections.find { it.items.firstOrNull() is com.music.innertube.models.SongItem }
                     topSongsSection?.items?.forEach { item ->

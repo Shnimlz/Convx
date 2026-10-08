@@ -8,6 +8,7 @@ package com.convx.music.viewmodels
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.convx.music.constants.LocalOnlyModeKey
 import com.convx.music.constants.HideVideoSongsKey
 import com.convx.music.constants.DataSaverEnabledKey
 import com.convx.music.db.MusicDatabase
@@ -71,17 +72,27 @@ constructor(
         combine(
             query,
             filter,
-            context.dataStore.data.map { (it[HideVideoSongsKey] ?: false) || (it[DataSaverEnabledKey] ?: false) }.distinctUntilChanged()
+            context.dataStore.data.map { ((it[HideVideoSongsKey] ?: false) || (it[DataSaverEnabledKey] ?: false)) to (it[LocalOnlyModeKey] == true) }.distinctUntilChanged()
         ) { query, filter, hideVideoSongs ->
             Triple(query, filter, hideVideoSongs)
-        }.flatMapLatest { (query, filter, hideVideoSongs) ->
+        }.flatMapLatest { (query, filter, options) ->
+            val (hideVideoSongs, localOnly) = options
+            val availableSongs = database.localSongsByNameAsc(includeDownloads = true)
+            val searchableSongs = if (localOnly) availableSongs else database.allSearchableSongs()
+            fun songResults(limit: Int = Int.MAX_VALUE) = exactOrFuzzy(
+                query,
+                if (localOnly) availableSongs.map { songs ->
+                    songs.filter { it.title.contains(query, ignoreCase = true) }.take(limit)
+                } else database.searchSongs(query, limit),
+                searchableSongs, limit,
+            )
             if (query.isEmpty()) {
                 flowOf(LocalSearchResult("", filter, emptyMap()))
             } else {
                 when (filter) {
                     LocalFilter.ALL ->
                         combine(
-                            exactOrFuzzy(query, database.searchSongs(query, PREVIEW_SIZE), database.allSearchableSongs(), PREVIEW_SIZE),
+                            songResults(PREVIEW_SIZE),
                             exactOrFuzzy(query, database.searchAlbums(query, PREVIEW_SIZE), database.allSearchableAlbums(), PREVIEW_SIZE),
                             exactOrFuzzy(query, database.searchArtists(query, PREVIEW_SIZE), database.allSearchableArtists(), PREVIEW_SIZE),
                             exactOrFuzzy(query, database.searchPlaylists(query, PREVIEW_SIZE), database.allSearchablePlaylists(), PREVIEW_SIZE),
@@ -90,7 +101,7 @@ constructor(
                             filteredSongs + albums + artists + playlists
                         }
 
-                    LocalFilter.SONG -> exactOrFuzzy(query, database.searchSongs(query), database.allSearchableSongs()).map { songs ->
+                    LocalFilter.SONG -> songResults().map { songs ->
                         if (hideVideoSongs) songs.filter { !it.song.isVideo } else songs
                     }
                     LocalFilter.ALBUM -> exactOrFuzzy(query, database.searchAlbums(query), database.allSearchableAlbums())

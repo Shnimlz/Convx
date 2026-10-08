@@ -93,8 +93,8 @@ constructor(
                         // Local-only mode pins every library tab to its LOCAL filter.
                         // Doing it here rather than in the screen means the stored
                         // filter is left untouched and comes back when it's turned off.
-                        if (it[LocalOnlyModeKey] == true) SongFilter.LOCAL
-                        else it[SongFilterKey].toEnum(SongFilter.LIKED),
+                        (if (it[LocalOnlyModeKey] == true) SongFilter.LOCAL
+                        else it[SongFilterKey].toEnum(SongFilter.LIKED)) to (it[LocalOnlyModeKey] == true),
                         it[SongSortTypeKey].toEnum(SongSortType.CREATE_DATE),
                         (it[SongSortDescendingKey] ?: true),
                     ),
@@ -103,13 +103,14 @@ constructor(
                 )
             }.distinctUntilChanged()
             .flatMapLatest { (filterSort, hideExplicit, hideVideoSongs) ->
-                val (filter, sortType, descending) = filterSort
+                val (filterMode, sortType, descending) = filterSort
+                val (filter, localOnly) = filterMode
                 when (filter) {
                     SongFilter.LIBRARY -> database.songs(sortType, descending).map { it.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs) }
                     SongFilter.LIKED -> database.likedSongs(sortType, descending).map { it.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs) }
                     SongFilter.DOWNLOADED -> database.downloadedSongs(sortType, descending).map { it.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs) }
                     SongFilter.UPLOADED -> database.uploadedSongs(sortType, descending).map { it.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs) }
-                    SongFilter.LOCAL -> database.localSongs(sortType, descending).map { it.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs) }
+                    SongFilter.LOCAL -> database.localSongs(sortType, descending, includeDownloads = localOnly).map { it.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs) }
                 }
             }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 

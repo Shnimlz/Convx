@@ -131,7 +131,7 @@ class HomeViewModel @Inject constructor(
             (prefs[LocalSongSortTypeKey].toEnum(SongSortType.NAME)) to (prefs[LocalSongSortDescendingKey] ?: false)
         }
         .distinctUntilChanged()
-        .flatMapLatest { (sortType, descending) -> database.localSongs(sortType, descending) }
+        .flatMapLatest { (sortType, descending) -> database.localSongs(sortType, descending, includeDownloads = true) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     // Newest release first by default, not A-Z: an on-device library is something the
     // user assembled over time, so release order says more about it than the alphabet
