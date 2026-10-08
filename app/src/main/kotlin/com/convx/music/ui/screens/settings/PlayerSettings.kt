@@ -81,6 +81,8 @@ import com.convx.music.ui.utils.appTopBarWindowInsets
 import com.convx.music.constants.AudioQuality
 import com.convx.music.ui.utils.appTopBarWindowInsets
 import com.convx.music.constants.AudioQualityKey
+import com.convx.music.constants.DownloadFormatKey
+import com.convx.music.playback.DownloadFormat
 import com.convx.music.ui.utils.appTopBarWindowInsets
 import com.convx.music.constants.EnableSaavnStreamingKey
 import com.convx.music.ui.utils.appTopBarWindowInsets
@@ -163,6 +165,25 @@ fun PlayerSettings(
     navController: NavController,
     scrollBehavior: TopAppBarScrollBehavior,
 ) {
+    val (downloadFormat, onDownloadFormatChange) = rememberEnumPreference(
+        DownloadFormatKey, defaultValue = DownloadFormat.STANDARD
+    )
+    var showDownloadFormatDialog by remember { mutableStateOf(false) }
+    if (showDownloadFormatDialog) {
+        EnumDialog(
+            onDismiss = { showDownloadFormatDialog = false },
+            onSelect = {
+                onDownloadFormatChange(it)
+                showDownloadFormatDialog = false
+            },
+            title = stringResource(R.string.download_format),
+            current = downloadFormat,
+            values = DownloadFormat.entries,
+            valueText = {
+                stringResource(if (it == DownloadFormat.FLAC) R.string.download_format_flac else R.string.download_format_standard)
+            }
+        )
+    }
     val (audioQuality, onAudioQualityChange) = rememberEnumPreference(
         AudioQualityKey,
         defaultValue = AudioQuality.AUTO
@@ -887,6 +908,14 @@ fun PlayerSettings(
                         )
                     },
                     onClick = { onAutoDownloadOnLikeChange(!autoDownloadOnLike) }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.download),
+                    title = { Text(stringResource(R.string.download_format)) },
+                    description = {
+                        Text(stringResource(if (downloadFormat == DownloadFormat.FLAC) R.string.download_format_flac_desc else R.string.download_format_standard_desc))
+                    },
+                    onClick = { showDownloadFormatDialog = true }
                 ),
                 Material3SettingsItem(
                     icon = painterResource(R.drawable.similar),

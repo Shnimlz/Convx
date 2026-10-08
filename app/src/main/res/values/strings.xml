@@ -7,6 +7,13 @@
 <!-- Translators: Do not modify this file for translations, use InnerTune's Weblate instead. -->
 
 <resources>
+    <string name="download_format">Download format</string>
+    <string name="download_format_standard">Standard (AAC/Opus)</string>
+    <string name="download_format_flac">FLAC lossless (16-bit)</string>
+    <string name="download_format_standard_desc">Original compressed audio. Uses your selected audio quality and streaming source.</string>
+    <string name="download_format_flac_desc">Download real 16-bit FLAC from a matching lossless source. Unavailable tracks fail instead of switching formats. Applies to new downloads; remove an existing download first to change its format. Stored offline inside Convx.</string>
+    <string name="flac_download_unavailable">No compatible FLAC source available for this song. Try again later or choose Standard for a new download.</string>
+    <string name="flac_download_invalid">The source did not return a valid FLAC file. Download stopped.</string>
     <!-- Bottom navigation -->
     <string name="home">Home</string>
     <string name="music">Music</string>

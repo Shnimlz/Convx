@@ -10,6 +10,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
+import androidx.core.content.IntentCompat
+import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.common.util.NotificationUtil
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.offline.Download
@@ -35,6 +37,12 @@ class ExoDownloadService : DownloadService(
     lateinit var downloadUtil: DownloadUtil
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_ADD_DOWNLOAD) {
+            IntentCompat.getParcelableExtra(intent, KEY_DOWNLOAD_REQUEST, DownloadRequest::class.java)
+                ?.let { request ->
+                    intent.putExtra(KEY_DOWNLOAD_REQUEST, downloadUtil.prepareDownloadRequest(request))
+                }
+        }
         if (intent?.action == REMOVE_ALL_PENDING_DOWNLOADS) {
             downloadManager.currentDownloads.forEach { download ->
                 downloadManager.removeDownload(download.request.id)

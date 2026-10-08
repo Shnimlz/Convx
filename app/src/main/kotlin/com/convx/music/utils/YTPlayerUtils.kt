@@ -210,7 +210,12 @@ object YTPlayerUtils {
          *  times (stall/parsing errors) — skips the Spine and Tidal intercepts
          *  entirely and resolves the plain YouTube stream for this call only. */
         forceStandardAudio: Boolean = false,
+        /** Offline FLAC: direct lossless only; never silently substitute lossy audio. */
+        requireFlac: Boolean = false,
     ): Result<PlaybackData> {
+        if (requireFlac && context == null) {
+            return Result.failure(IOException("FLAC downloads require source settings"))
+        }
         // ── JioSaavn intercept ───────────────────────────────────────────────
         // If the user has enabled JioSaavn streaming, try to resolve the stream
         // URL from JioSaavn first. We fall through to YouTube on ANY failure so
@@ -224,7 +229,7 @@ object YTPlayerUtils {
             // ── 8spine module intercept ─────────────────────────────────────────
             // Try enabled 8spine modules for streaming before other sources.
             // Falls through to TIDAL/Saavn/YouTube on ANY failure.
-            if (!forceStandardAudio) {
+            if (!forceStandardAudio && !requireFlac) {
             Timber.tag(TAG).d("═══ SPINE INTERCEPT START ═══ videoId=$videoId")
             val enabledModulesJson = context.dataStore.get(EnabledModulesKey, "[]")
             val moduleSourcesJson = context.dataStore.get(ModuleSourcesKey, "[]")
@@ -513,7 +518,7 @@ object YTPlayerUtils {
             // ── Lossless (TIDAL) intercept ───────────────────────────────────────
             // Opt-in FLAC from a public hifi-api instance. Tried BEFORE JioSaavn so
             // lossless wins. Falls through to Saavn/YouTube on ANY failure.
-            if (!forceStandardAudio && !forceSelectedQuality && allowLossless && context.dataStore.get(EnableTidalStreamingKey, false)) {
+            if (requireFlac || (!forceStandardAudio && !forceSelectedQuality && allowLossless && context.dataStore.get(EnableTidalStreamingKey, false))) {
                 Timber.tag(TAG).d("Lossless enabled — trying TIDAL for videoId=$videoId")
                 val tidalResult = runCatching {
                     val (currentSong, meta) = coroutineScope {
@@ -580,7 +585,7 @@ object YTPlayerUtils {
                         return@runCatching null
                     }
 
-                    val quality = runCatching {
+                    val quality = if (requireFlac) TidalQuality.LOSSLESS else runCatching {
                         TidalQuality.valueOf(context.dataStore.get(TidalQualityKey, TidalQuality.LOSSLESS.name))
                     }.getOrDefault(TidalQuality.LOSSLESS)
 
@@ -640,6 +645,10 @@ object YTPlayerUtils {
                 Timber.tag(TAG).d("TIDAL intercept failed or returned null — trying next source")
             }
             // ── End TIDAL intercept ──────────────────────────────────────────────
+
+            if (requireFlac) {
+                return Result.failure(IOException(context.getString(com.convx.music.R.string.flac_download_unavailable)))
+            }
 
             val saavnEnabled = context.dataStore.get(EnableSaavnStreamingKey, false)
             if (saavnEnabled) {

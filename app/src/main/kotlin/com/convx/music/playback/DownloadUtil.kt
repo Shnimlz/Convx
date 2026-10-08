@@ -31,6 +31,7 @@ import androidx.media3.exoplayer.offline.DownloadService
 import com.music.innertube.YouTube
 import com.convx.music.constants.AudioQuality
 import com.convx.music.constants.AudioQualityKey
+import com.convx.music.constants.DownloadFormatKey
 import com.convx.music.constants.IpVersionKey
 import com.music.innertube.models.IpVersion
 import okhttp3.Dns
@@ -75,6 +76,8 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import java.time.LocalDateTime
 import java.util.concurrent.Executor
+import java.io.IOException
+import okhttp3.Request
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -90,6 +93,7 @@ constructor(
 ) {
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
     private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
+    private val selectedDownloadFormat by enumPreference(context, DownloadFormatKey, DownloadFormat.STANDARD)
     private val ipVersion by enumPreference(context, IpVersionKey, IpVersion.AUTO)
     private data class ResolvedDownloadUrl(
         val url: String,
@@ -113,6 +117,20 @@ constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
+
+    /** Store the choice in Media3's durable request, so retries never mix formats. */
+    fun prepareDownloadRequest(request: DownloadRequest): DownloadRequest {
+        val existing = downloadManager.downloadIndex.getDownload(request.id)?.request
+        val format = downloadFormatForRequest(existing != null, existing?.mimeType, selectedDownloadFormat)
+        if (existing != null) return existing
+        return DownloadRequest.Builder(request.id, request.uri)
+            .setMimeType(if (format == DownloadFormat.FLAC) "audio/flac" else request.mimeType)
+            .setStreamKeys(request.streamKeys)
+            .setKeySetId(request.keySetId)
+            .setCustomCacheKey(request.customCacheKey)
+            .setData(request.data)
+            .build()
+    }
 
     init {
         // Auto-download-on-like watches the `liked` column instead of hooking the
@@ -154,34 +172,35 @@ constructor(
         }
     }
 
+    private val downloadHttpClient =
+        OkHttpClient.Builder()
+            .dns(object : Dns {
+                override fun lookup(hostname: String): List<InetAddress> {
+                    val addresses = Dns.SYSTEM.lookup(hostname)
+                    return when (this@DownloadUtil.ipVersion) {
+                        IpVersion.IPV4 -> addresses.filter { it is Inet4Address }.ifEmpty { addresses }
+                        IpVersion.IPV6 -> addresses.filter { it is Inet6Address }.ifEmpty { addresses }
+                        IpVersion.AUTO -> addresses
+                    }
+                }
+            })
+            .proxy(YouTube.proxy)
+            .proxyAuthenticator { _, response ->
+                YouTube.proxyAuth?.let { auth ->
+                    response.request.newBuilder()
+                        .header("Proxy-Authorization", auth)
+                        .build()
+                } ?: response.request
+            }
+            .build()
+
     private val dataSourceFactory =
         ResolvingDataSource.Factory(
-            // Streaming fragments can be a different codec/quality or source. Only
-            // DownloadManager's own cache may supply bytes for an offline download.
-            OkHttpDataSource.Factory(
-                OkHttpClient.Builder()
-                    .dns(object : Dns {
-                        override fun lookup(hostname: String): List<InetAddress> {
-                            val addresses = Dns.SYSTEM.lookup(hostname)
-                            return when (this@DownloadUtil.ipVersion) {
-                                IpVersion.IPV4 -> addresses.filter { it is Inet4Address }.ifEmpty { addresses }
-                                IpVersion.IPV6 -> addresses.filter { it is Inet6Address }.ifEmpty { addresses }
-                                IpVersion.AUTO -> addresses
-                            }
-                        }
-                    })
-                    .proxy(YouTube.proxy)
-                    .proxyAuthenticator { _, response ->
-                        YouTube.proxyAuth?.let { auth ->
-                            response.request.newBuilder()
-                                .header("Proxy-Authorization", auth)
-                                .build()
-                        } ?: response.request
-                    }
-                    .build(),
-            ),
+            // Offline bytes never reuse fragments from the streaming cache.
+            OkHttpDataSource.Factory(downloadHttpClient),
         ) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
+            val requireFlac = downloadManager.downloadIndex.getDownload(mediaId)?.request?.mimeType == "audio/flac"
             songUrlCache[mediaId]?.takeIf { it.expiresAt > System.currentTimeMillis() }?.let {
                 return@Factory it.resolve(dataSpec)
             }
@@ -193,13 +212,30 @@ constructor(
                     connectivityManager = connectivityManager,
                     // Pass context so the JioSaavn intercept fires when the toggle is ON
                     context = appContext,
-                    // Exclude lossless-capable Spine/Tidal sources from offline bytes.
-                    // Saavn remains supported and uses its own resolved CDN URL.
-                    allowLossless = false,
-                    forceStandardAudio = true,
+                    allowLossless = requireFlac,
+                    forceStandardAudio = !requireFlac,
+                    requireFlac = requireFlac,
                 )
             }.getOrThrow()
             val format = playbackData.format
+            if (requireFlac) {
+                // Providers can mislabel AAC as lossless. Verify the native FLAC
+                // marker before any bytes or format metadata enter the cache.
+                val probe = Request.Builder().url(playbackData.streamUrl)
+                    .header("Range", "bytes=0-3")
+                    .header("Accept-Encoding", "identity").build()
+                downloadHttpClient.newCall(probe).execute().use { response ->
+                    if (!response.isSuccessful || response.body == null) {
+                        throw IOException(appContext.getString(com.convx.music.R.string.flac_download_unavailable))
+                    }
+                    val header = response.body!!.source().run {
+                        if (request(4)) readByteArray(4) else byteArrayOf()
+                    }
+                    if (!isFlacHeader(header)) {
+                        throw IOException(appContext.getString(com.convx.music.R.string.flac_download_invalid))
+                    }
+                }
+            }
 
             database.query {
                 upsert(

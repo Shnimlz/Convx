@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="download_format">Formato de descarga</string>
+    <string name="download_format_standard">Estándar (AAC/Opus)</string>
+    <string name="download_format_flac">FLAC sin pérdida (16 bits)</string>
+    <string name="download_format_standard_desc">Audio comprimido original. Usa la calidad y la fuente de audio seleccionadas.</string>
+    <string name="download_format_flac_desc">Descarga FLAC real de 16 bits desde una fuente compatible. Si no está disponible, falla sin cambiar de formato. Se aplica a descargas nuevas; elimina una descarga existente para cambiar su formato. Se guarda sin conexión dentro de Convx.</string>
+    <string name="flac_download_unavailable">No hay una fuente FLAC compatible para esta canción. Intenta más tarde o elige Estándar para una descarga nueva.</string>
+    <string name="flac_download_invalid">La fuente no devolvió un archivo FLAC válido. Se detuvo la descarga.</string>
     <string name="home">Inicio</string>
     <string name="songs">Canciones</string>
     <string name="artists">Artistas</string>

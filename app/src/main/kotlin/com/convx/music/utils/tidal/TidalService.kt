@@ -102,6 +102,7 @@ private data class TidalTrackResponse(
 private data class BtsManifest(
     @SerialName("mimeType") val mimeType: String? = null,
     @SerialName("urls")     val urls: List<String> = emptyList(),
+    @SerialName("encryptionType") val encryptionType: String? = null,
 )
 
 // ─── Live-instance discovery (uptime worker) ─────────────────────────────────
@@ -287,7 +288,11 @@ object TidalService {
         }.getOrNull() ?: return null
         if (decoded.trimStart().startsWith("<")) return null // MPD XML, not JSON
         return runCatching {
-            json.decodeFromString<BtsManifest>(decoded).urls.firstOrNull()
-        }.getOrNull()?.takeIf { it.isNotBlank() }
+            val bts = json.decodeFromString<BtsManifest>(decoded)
+            val audioMime = bts.mimeType?.substringBefore(';')?.trim()?.lowercase()
+            if (audioMime != "audio/flac" && audioMime != "audio/x-flac") return@runCatching null
+            if (!bts.encryptionType.isNullOrBlank() && !bts.encryptionType.equals("NONE", true)) return@runCatching null
+            bts.urls.firstOrNull()?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+        }.getOrNull()
     }
 }

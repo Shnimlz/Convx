@@ -2,7 +2,7 @@ name: Fork APK and Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/flac-downloads]
     paths-ignore:
       - '**/*.md'
       - 'assets/**'
@@ -57,6 +57,8 @@ jobs:
           ./gradlew :app:testUniversalGmsDebugUnitTest \
             --tests 'com.convx.music.playback.DownloadActionsTest' \
             --tests 'com.convx.music.playback.DownloadByteRangeTest' \
+            --tests 'com.convx.music.playback.DownloadFormatTest' \
+            --tests 'com.convx.music.utils.tidal.TidalServiceTest' \
             -PforkBuildNumber="$GITHUB_RUN_NUMBER" --no-configuration-cache --console=plain
           ./gradlew :app:assembleUniversalGmsDebug \
             -PforkBuildNumber="$GITHUB_RUN_NUMBER" --no-configuration-cache --console=plain
@@ -88,6 +90,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
 
   release:
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -106,7 +109,11 @@ jobs:
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
           cat > release-notes.md <<'EOF'
-          Fork build with search navigation fixes, auto-playlist download actions, and resumable audio downloads.
+          Fork build with search navigation fixes, auto-playlist download actions, resumable audio downloads, and verified FLAC offline downloads.
+
+          Choose Settings > Player > Download format > FLAC for new downloads.
+          FLAC uses a compatible lossless source and fails instead of silently substituting lossy audio.
+          Existing downloads keep their format; remove and download again to change it.
 
           Download the universal `.apk` asset directly on your Android phone.
           This is a debug-signed test build, installed separately from stable Convx.
