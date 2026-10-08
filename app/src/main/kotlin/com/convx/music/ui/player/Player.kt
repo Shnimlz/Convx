@@ -3428,12 +3428,12 @@ fun InlineLyricsView(
     val lyrics = remember(currentLyrics) { currentLyrics?.lyrics?.trim() }
     val context = LocalContext.current
     val database = LocalDatabase.current
-    val coroutineScope = rememberCoroutineScope()
+    val dataSaver by rememberPreference(DataSaverEnabledKey, false)
 
-    LaunchedEffect(mediaMetadata?.id, currentLyrics) {
-        if (mediaMetadata != null && currentLyrics == null) {
+    LaunchedEffect(mediaMetadata?.id, currentLyrics, showLyrics, dataSaver) {
+        if (showLyrics && !dataSaver && mediaMetadata != null && currentLyrics == null) {
             delay(500)
-            coroutineScope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.IO) {
                 try {
                     val entryPoint = EntryPointAccessors.fromApplication(
                         context.applicationContext,

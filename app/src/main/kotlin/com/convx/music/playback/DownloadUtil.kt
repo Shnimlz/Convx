@@ -32,6 +32,10 @@ import com.music.innertube.YouTube
 import com.convx.music.constants.AudioQuality
 import com.convx.music.constants.AudioQualityKey
 import com.convx.music.constants.DownloadFormatKey
+import com.convx.music.constants.DataSaverEnabledKey
+import com.convx.music.constants.CanvasThumbnailAnimationKey
+import androidx.media3.exoplayer.scheduler.Requirements
+import kotlinx.coroutines.flow.distinctUntilChanged
 import com.convx.music.constants.IpVersionKey
 import com.music.innertube.models.IpVersion
 import okhttp3.Dns
@@ -111,6 +115,7 @@ constructor(
     }
 
     private val songUrlCache = ConcurrentHashMap<String, ResolvedDownloadUrl>()
+    private val canvasWriters = ConcurrentHashMap.newKeySet<CacheWriter>()
     // Keep a reference to context so we can read DataStore prefs for JioSaavn support
     private val appContext: Context = context
 
@@ -215,6 +220,7 @@ constructor(
                     allowLossless = requireFlac,
                     forceStandardAudio = !requireFlac,
                     requireFlac = requireFlac,
+                    applyDataSaver = false,
                 )
             }.getOrThrow()
             val format = playbackData.format
@@ -298,6 +304,8 @@ constructor(
 
                 // --- CANVAS CACHING ---
                 scope.launch {
+                    if (context.dataStore.get(DataSaverEnabledKey, false) ||
+                        !context.dataStore.get(CanvasThumbnailAnimationKey, true)) return@launch
                     val canvasSource = context.dataStore.data.map { it[CanvasSourceKey] ?: CanvasSource.AUTO.name }.first().let { name -> CanvasSource.entries.find { it.name == name } ?: CanvasSource.AUTO }
 
                     val storefront = Locale.getDefault().country.lowercase(Locale.ROOT).takeIf { it.length == 2 } ?: "us"
@@ -321,6 +329,7 @@ constructor(
                     }
 
                     canvas?.let { url ->
+                        if (context.dataStore.get(DataSaverEnabledKey, false)) return@launch
                         val dataSpec = DataSpec.Builder()
                             .setUri(url.toUri())
                             .setKey("$mediaId#canvas")
@@ -340,7 +349,13 @@ constructor(
                                 null,
                                 null
                             )
-                            writer.cache()
+                            canvasWriters.add(writer)
+                            try {
+                                if (context.dataStore.get(DataSaverEnabledKey, false)) return@runCatching
+                                writer.cache()
+                            } finally {
+                                canvasWriters.remove(writer)
+                            }
                             Timber.tag("CanvasDownload").d("Successfully cached canvas for $mediaId")
                         }.onFailure { e ->
                             Timber.tag("CanvasDownload").e(e, "Failed to cache canvas for $mediaId")
@@ -374,6 +389,10 @@ constructor(
             Executor(Runnable::run)
         ).apply {
             maxParallelDownloads = 3
+            setRequirements(Requirements(
+                if (context.dataStore.get(DataSaverEnabledKey, false)) Requirements.NETWORK_UNMETERED
+                else Requirements.NETWORK
+            ))
             // Built to post a notification on a failed download but never actually
             // registered anywhere — a failure produced no system notification, no
             // in-app error state (see the STATE_FAILED handling below/in the menus),
@@ -453,6 +472,15 @@ constructor(
             }
         }
         downloads.value = result
+        scope.launch(Dispatchers.Main) {
+            context.dataStore.data.map { it[DataSaverEnabledKey] ?: false }
+                .distinctUntilChanged().collect { enabled ->
+                    if (enabled) canvasWriters.forEach { it.cancel() }
+                    downloadManager.setRequirements(Requirements(
+                        if (enabled) Requirements.NETWORK_UNMETERED else Requirements.NETWORK
+                    ))
+                }
+        }
     }
 
     fun getDownload(songId: String): Flow<Download?> = downloads.map { it[songId] }

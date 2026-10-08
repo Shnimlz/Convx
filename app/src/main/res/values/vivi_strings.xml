@@ -463,7 +463,7 @@
     <string name="hide_video_songs">Hide video songs</string>
     <string name="hide_youtube_shorts">Hide YouTube Shorts</string>
     <string name="data_saver_mode">Data Saver Mode (Beta)</string>
-    <string name="data_saver_mode_desc">Hide video-only songs, disable lyrics, canvas, and artist background videos, and force lower audio quality to save data.</string>
+    <string name="data_saver_mode_desc">Use low-quality streaming, disable lossless sources, automatic lyrics and background videos, and hide video-only songs. Downloads wait for an unmetered network (usually Wi-Fi), keeping their selected format. Saved music stays available offline.</string>
 
     <!-- ListenBrainz -->
     <string name="listenbrainz_scrobbling">ListenBrainz scrobbling</string>

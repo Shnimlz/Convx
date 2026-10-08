@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="data_saver_mode">Ahorro de datos (beta)</string>
+    <string name="data_saver_mode_desc">Usa baja calidad al reproducir, desactiva las fuentes sin pérdida, las letras automáticas y los videos de fondo, y oculta las canciones que solo son videos. Las descargas esperan una red sin medición (normalmente Wi-Fi) y conservan el formato elegido. Tu música guardada sigue disponible sin conexión.</string>
     <string name="download_format">Formato de descarga</string>
     <string name="download_format_standard">Estándar (AAC/Opus)</string>
     <string name="download_format_flac">FLAC sin pérdida (16 bits)</string>

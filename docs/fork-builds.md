@@ -24,3 +24,23 @@ for every build. Never commit it or upload it as a public release asset.
 
 The upstream stable/nightly workflows are restricted to their original repository,
 because their release keystore is not inherited by forks.
+
+## FLAC and Data Saver
+
+In **Settings → Player → Download format**, choose **FLAC lossless (16-bit)**
+for new downloads. This resolves a matching direct lossless source and verifies
+the native FLAC header; it never transcodes lossy audio or silently substitutes
+AAC/Opus. Some songs or source instances may be unavailable. Files remain in
+Convx's offline storage, rather than being exported to the phone's Downloads folder.
+Existing and interrupted downloads keep their format. Remove a download first
+if you want to download it in another format.
+
+**Settings → Content → Data Saver Mode** reduces streaming quality for both
+YouTube and JioSaavn, bypasses lossless streaming sources, and disables automatic
+lyrics fetching and decorative canvas video in both players. Downloads wait for
+an unmetered connection (usually Wi-Fi), retaining the format you selected.
+Changing streaming quality or Data Saver does not delete downloaded songs.
+
+The beta label is inherited from upstream; it is not a nonfunctional placeholder.
+Unit tests and APK compilation cover the policy changes, but real-device traffic
+measurements and provider availability still need to be checked on your network.

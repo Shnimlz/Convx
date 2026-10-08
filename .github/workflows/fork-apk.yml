@@ -58,6 +58,7 @@ jobs:
             --tests 'com.convx.music.playback.DownloadActionsTest' \
             --tests 'com.convx.music.playback.DownloadByteRangeTest' \
             --tests 'com.convx.music.playback.DownloadFormatTest' \
+            --tests 'com.convx.music.playback.DataSaverPolicyTest' \
             --tests 'com.convx.music.utils.tidal.TidalServiceTest' \
             -PforkBuildNumber="$GITHUB_RUN_NUMBER" --no-configuration-cache --console=plain
           ./gradlew :app:assembleUniversalGmsDebug \
@@ -114,6 +115,8 @@ jobs:
           Choose Settings > Player > Download format > FLAC for new downloads.
           FLAC uses a compatible lossless source and fails instead of silently substituting lossy audio.
           Existing downloads keep their format; remove and download again to change it.
+          Data Saver now enforces low-bitrate streaming, disables background video in both players,
+          and waits for an unmetered connection before downloading. Changing quality preserves offline songs.
 
           Download the universal `.apk` asset directly on your Android phone.
           This is a debug-signed test build, installed separately from stable Convx.

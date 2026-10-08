@@ -19,6 +19,7 @@ import com.convx.music.models.MediaMetadata
 import com.convx.music.utils.rememberEnumPreference
 import com.convx.music.utils.rememberPreference
 import com.convx.music.constants.CanvasThumbnailAnimationKey
+import com.convx.music.constants.DataSaverEnabledKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -32,7 +33,8 @@ fun PlayerV2Canvas(
     if (mediaMetadata == null) return
 
     val enableCanvas by rememberPreference(CanvasThumbnailAnimationKey, defaultValue = true)
-    if (!enableCanvas) return
+    val dataSaver by rememberPreference(DataSaverEnabledKey, defaultValue = false)
+    if (!enableCanvas || dataSaver) return
 
     val (canvasSource) = rememberEnumPreference(CanvasSourceKey, defaultValue = CanvasSource.AUTO)
     val albumTitle = mediaMetadata.album?.title

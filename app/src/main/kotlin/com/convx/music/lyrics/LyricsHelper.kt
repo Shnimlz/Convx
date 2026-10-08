@@ -20,10 +20,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import javax.inject.Inject
 
 class LyricsHelper
@@ -82,9 +83,9 @@ constructor(
         }
 
         val providers = resolveLyricsProviders()
-        val scope = CoroutineScope(SupervisorJob())
-        val deferred = scope.async {
+        return coroutineScope {
             for (provider in providers) {
+                ensureActive()
                 if (provider.isEnabled(context)) {
                     try {
                         val result = provider.getLyrics(
@@ -95,22 +96,21 @@ constructor(
                             mediaMetadata.album?.title,
                         )
                         result.onSuccess { lyrics ->
-                            return@async LyricsWithProvider(lyrics, provider.name)
+                            return@coroutineScope LyricsWithProvider(lyrics, provider.name)
                         }.onFailure {
                             reportException(it)
                         }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         // Catch network-related exceptions like UnresolvedAddressException
                         reportException(e)
                     }
                 }
             }
-            return@async LyricsWithProvider(LYRICS_NOT_FOUND, "Unknown")
+            ensureActive()
+            LyricsWithProvider(LYRICS_NOT_FOUND, "Unknown")
         }
-
-        val result = deferred.await()
-        scope.cancel()
-        return result
     }
 
     suspend fun getAllLyrics(

@@ -705,16 +705,14 @@ class MusicService :
         scope.launch {
             dataStore.data
                 .map { prefs ->
-                    if (prefs[DataSaverEnabledKey] ?: false) {
-                        com.convx.music.constants.AudioQuality.LOW
-                    } else {
-                        prefs[AudioQualityKey]?.let { value ->
-                            com.convx.music.constants.AudioQuality.entries.find { it.name == value }
-                        } ?: com.convx.music.constants.AudioQuality.AUTO
-                    }
+                    val dataSaver = prefs[DataSaverEnabledKey] ?: false
+                    val selected = prefs[AudioQualityKey]?.let { value ->
+                        com.convx.music.constants.AudioQuality.entries.find { it.name == value }
+                    } ?: com.convx.music.constants.AudioQuality.AUTO
+                    effectiveAudioQuality(selected, dataSaver) to dataSaver
                 }
                 .distinctUntilChanged()
-                .collect { newQuality ->
+                .collect { (newQuality, dataSaver) ->
                     val oldQuality = audioQuality
                     audioQuality = newQuality
 
@@ -729,6 +727,11 @@ class MusicService :
 
                     // Reload current song with new quality
                     val mediaId = player.currentMediaItem?.mediaId ?: return@collect
+                    // Saved audio costs no network data. Never delete it or reload it
+                    // merely because the streaming policy changed.
+                    val savedSong = withContext(Dispatchers.IO) { database.song(mediaId).first()?.song }
+                    if (savedSong?.isLocal == true || savedSong?.isDownloaded == true) return@collect
+                    if (player.currentMediaItem?.mediaId != mediaId) return@collect
                     val currentPosition = player.currentPosition
                     val wasPlaying = player.isPlaying
                     val currentIndex = player.currentMediaItemIndex
@@ -736,20 +739,21 @@ class MusicService :
                     Timber.tag("MusicService").i("RELOADING STREAM: $mediaId at position ${currentPosition}ms")
 
                     // Clear cached URL to force fresh fetch
-                    songUrlCache.remove(mediaId)
+                    val streamingKeys = listOf(mediaId, "$mediaId#flac", "$mediaId#data-saver")
+                    streamingKeys.forEach(songUrlCache::remove)
 
                     // CRITICAL: Clear caches synchronously to prevent format parsing errors
-                    runBlocking(Dispatchers.IO) {
+                    withContext(Dispatchers.IO) {
                         try {
-                            playerCache.removeResource(mediaId)
-                            downloadCache.removeResource(mediaId)
-                            Timber.tag("MusicService").d("Cleared player and download cache for $mediaId")
+                            streamingKeys.forEach(playerCache::removeResource)
+                            Timber.tag("MusicService").d("Cleared streaming cache for $mediaId; data saver=$dataSaver")
                         } catch (e: Exception) {
                             Timber.tag("MusicService").e(e, "Failed to clear cache for $mediaId")
                         }
                     }
 
-                    // Set bypass flag so resolver skips cache checks
+                    if (player.currentMediaItem?.mediaId != mediaId) return@collect
+                    // Set bypass flag so resolver skips stale streaming cache checks
                     bypassCacheForQualityChange.add(mediaId)
                     Timber.tag("MusicService").d("Set bypass cache flag for $mediaId")
 
@@ -778,12 +782,18 @@ class MusicService :
 
                     // Reload player to apply new DNS filter
                     val mediaId = player.currentMediaItem?.mediaId ?: return@collect
+                    // Saved audio costs no network data. Never delete it or reload it
+                    // merely because the streaming policy changed.
+                    val savedSong = withContext(Dispatchers.IO) { database.song(mediaId).first()?.song }
+                    if (savedSong?.isLocal == true || savedSong?.isDownloaded == true) return@collect
+                    if (player.currentMediaItem?.mediaId != mediaId) return@collect
                     val currentPosition = player.currentPosition
                     val currentIndex = player.currentMediaItemIndex
                     val wasPlaying = player.isPlaying
 
                     // Clear cached URL
-                    songUrlCache.remove(mediaId)
+                    val streamingKeys = listOf(mediaId, "$mediaId#flac", "$mediaId#data-saver")
+                    streamingKeys.forEach(songUrlCache::remove)
 
                     // Reload player
                     player.stop()
@@ -3208,14 +3218,15 @@ class MusicService :
 
             // Lossless namespaces the whole cache chain so FLAC and Opus/AAC bytes
             // for the same video never collide across a toggle. Streaming only:
-            // offline downloads live in the plain (Opus) namespace.
+            // offline downloads keep their chosen format in the plain mediaId namespace.
             // Spine streams also use lossless namepacing to avoid cache collisions.
             val losslessOn = dataStore.get(EnableTidalStreamingKey, false)
             val spineEnabled = dataStore.get(EnabledModulesKey, "[]") != "[]"
-            val effKey = when {
-                losslessOn || spineEnabled -> "$mediaId#flac"
-                else -> mediaId
-            }
+            val effKey = playbackCacheKey(
+                mediaId,
+                dataSaver = dataStore.get(DataSaverEnabledKey, false),
+                lossless = losslessOn || spineEnabled,
+            )
             Timber.tag("SpineDebug").d("DataSourceResolver: mediaId=$mediaId spineEnabled=$spineEnabled losslessOn=$losslessOn effKey=$effKey")
             val spec = if (effKey == mediaId) dataSpec else dataSpec.buildUpon().setKey(effKey).build()
 

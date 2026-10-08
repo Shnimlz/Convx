@@ -27,6 +27,9 @@ import com.music.innertube.models.YouTubeClient.Companion.WEB_CREATOR
 import com.music.innertube.models.YouTubeClient.Companion.WEB_REMIX
 import com.music.innertube.models.response.PlayerResponse
 import com.convx.music.constants.AudioQuality
+import com.convx.music.constants.DataSaverEnabledKey
+import com.convx.music.playback.effectiveAudioQuality
+import com.convx.music.playback.effectiveSaavnQuality
 import com.convx.music.constants.EnableSaavnStreamingKey
 import com.convx.music.constants.ForceSelectedQualityKey
 import com.convx.music.constants.SaavnFallbackToYouTubeKey
@@ -212,10 +215,14 @@ object YTPlayerUtils {
         forceStandardAudio: Boolean = false,
         /** Offline FLAC: direct lossless only; never silently substitute lossy audio. */
         requireFlac: Boolean = false,
+        /** Offline requests keep their encoding and wait for unmetered networking instead. */
+        applyDataSaver: Boolean = true,
     ): Result<PlaybackData> {
         if (requireFlac && context == null) {
             return Result.failure(IOException("FLAC downloads require source settings"))
         }
+        val dataSaver = applyDataSaver && context?.dataStore?.get(DataSaverEnabledKey, false) == true
+        val effectiveQuality = effectiveAudioQuality(audioQuality, dataSaver)
         // ── JioSaavn intercept ───────────────────────────────────────────────
         // If the user has enabled JioSaavn streaming, try to resolve the stream
         // URL from JioSaavn first. We fall through to YouTube on ANY failure so
@@ -229,7 +236,7 @@ object YTPlayerUtils {
             // ── 8spine module intercept ─────────────────────────────────────────
             // Try enabled 8spine modules for streaming before other sources.
             // Falls through to TIDAL/Saavn/YouTube on ANY failure.
-            if (!forceStandardAudio && !requireFlac) {
+            if (!forceStandardAudio && !requireFlac && !dataSaver) {
             Timber.tag(TAG).d("═══ SPINE INTERCEPT START ═══ videoId=$videoId")
             val enabledModulesJson = context.dataStore.get(EnabledModulesKey, "[]")
             val moduleSourcesJson = context.dataStore.get(ModuleSourcesKey, "[]")
@@ -518,7 +525,7 @@ object YTPlayerUtils {
             // ── Lossless (TIDAL) intercept ───────────────────────────────────────
             // Opt-in FLAC from a public hifi-api instance. Tried BEFORE JioSaavn so
             // lossless wins. Falls through to Saavn/YouTube on ANY failure.
-            if (requireFlac || (!forceStandardAudio && !forceSelectedQuality && allowLossless && context.dataStore.get(EnableTidalStreamingKey, false))) {
+            if (!dataSaver && (requireFlac || (!forceStandardAudio && !forceSelectedQuality && allowLossless && context.dataStore.get(EnableTidalStreamingKey, false)))) {
                 Timber.tag(TAG).d("Lossless enabled — trying TIDAL for videoId=$videoId")
                 val tidalResult = runCatching {
                     val (currentSong, meta) = coroutineScope {
@@ -763,15 +770,19 @@ object YTPlayerUtils {
 
                     // Step 4: resolve stream URL at requested quality
                     val qualityKey = context.dataStore.get(SaavnAudioQualityKey, SaavnAudioQuality.QUALITY_320.name)
-                    val quality = runCatching { SaavnAudioQuality.valueOf(qualityKey) }
-                        .getOrDefault(SaavnAudioQuality.QUALITY_320)
+                    val quality = effectiveSaavnQuality(
+                        runCatching { SaavnAudioQuality.valueOf(qualityKey) }
+                            .getOrDefault(SaavnAudioQuality.QUALITY_320),
+                        dataSaver,
+                    )
 
                     // First try to resolve stream URL directly from the search result's downloadUrl list
                     // to avoid an extra details API call (saves 300ms-800ms).
-                    var streamUrl = SaavnService.selectBestUrl(bestSong.downloadUrl, quality.toApiValue())
+                    val maxBitrateKbps = if (dataSaver) 96 else null
+                    var streamUrl = SaavnService.selectBestUrl(bestSong.downloadUrl, quality.toApiValue(), maxBitrateKbps)
                     if (streamUrl.isNullOrBlank()) {
                         Timber.tag(TAG).d("Saavn: downloadUrl list empty in search results, fetching via getBestStreamUrl for songId=${bestSong.id}")
-                        streamUrl = SaavnService.getBestStreamUrl(bestSong.id, quality.toApiValue())
+                        streamUrl = SaavnService.getBestStreamUrl(bestSong.id, quality.toApiValue(), maxBitrateKbps)
                     } else {
                         Timber.tag(TAG).d("Saavn: resolved stream URL directly from search results: $streamUrl")
                     }
@@ -845,7 +856,7 @@ object YTPlayerUtils {
         }
         // ── End JioSaavn intercept ───────────────────────────────────────────
 
-        val firstAttempt = resolvePlaybackData(videoId, playlistId, audioQuality, connectivityManager)
+        val firstAttempt = resolvePlaybackData(videoId, playlistId, effectiveQuality, connectivityManager)
 
         // A geo-restricted video fails the same way on a retry — rotating a
         // guest session or re-attempting as-is can't fix a region block, so
@@ -864,7 +875,7 @@ object YTPlayerUtils {
             Timber.tag(TAG).w("Playback failed for $label. Rotating session and retrying...")
             PlaybackLogManager.log(PlaybackLogLevel.BOT, "Playback failed for $label", "Triggering bot detection mitigation (rotating guest session)")
             BotDetectionMitigator.rotateGuestSession()
-            val retryResult = resolvePlaybackData(videoId, playlistId, audioQuality, connectivityManager)
+            val retryResult = resolvePlaybackData(videoId, playlistId, effectiveQuality, connectivityManager)
             retryResult.onSuccess { BotDetectionMitigator.notifyPlaybackSuccess() }
             return retryResult
         }

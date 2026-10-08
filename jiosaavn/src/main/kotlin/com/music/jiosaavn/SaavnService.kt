@@ -167,8 +167,11 @@ object SaavnService {
      * Choose the best stream URL matching [quality] from a list of download URLs.
      * If the exact quality is not found, it falls back to 320kbps or the highest quality.
      */
-    fun selectBestUrl(urls: List<SaavnDownloadUrl>, quality: String): String? {
-        val filteredUrls = urls.filter { it.url.isNotBlank() }
+    fun selectBestUrl(urls: List<SaavnDownloadUrl>, quality: String, maxBitrateKbps: Int? = null): String? {
+        val filteredUrls = urls.filter {
+            val bitrate = it.quality.lowercase().removeSuffix("kbps").trim().toIntOrNull()
+            it.url.isNotBlank() && (maxBitrateKbps == null || (bitrate != null && bitrate <= maxBitrateKbps))
+        }
         if (filteredUrls.isEmpty()) return null
 
         // 1. Try the exact requested quality
@@ -191,7 +194,7 @@ object SaavnService {
      * If the exact quality is unavailable, the highest available quality is returned
      * as a fallback. Returns null only if no downloadUrl entries exist at all.
      */
-    suspend fun getBestStreamUrl(saavnSongId: String, quality: String): String? =
+    suspend fun getBestStreamUrl(saavnSongId: String, quality: String, maxBitrateKbps: Int? = null): String? =
         runCatching {
             Log.d(TAG, "getBestStreamUrl: saavnSongId=$saavnSongId, quality=$quality")
             val response = client.get("songs/$saavnSongId")
@@ -204,7 +207,7 @@ object SaavnService {
             if (!body.success) return@runCatching null
 
             val urls = body.data.firstOrNull()?.downloadUrl.orEmpty()
-            selectBestUrl(urls, quality)
+            selectBestUrl(urls, quality, maxBitrateKbps)
         }.onFailure {
             Log.e(TAG, "getBestStreamUrl failed for saavnSongId=$saavnSongId", it)
         }.getOrNull()
